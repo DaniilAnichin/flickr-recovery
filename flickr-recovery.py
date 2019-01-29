@@ -35,8 +35,10 @@ def make_dir(full_path: str) -> bool:
     return True
 
 
-def get_valid_albums(flickr_data: dict, images_dir: str) -> list:
-    albums = [path.join(images_dir, album['title'].replace('/', '.')) for album in flickr_data['albums']]
+def get_valid_albums(full_albums: dict, flickr_data: dict, images_dir: str) -> list:
+    albums_data = [data for data in full_albums if flickr_data['id'] in data['photos']]
+    albums_data.extend(flickr_data['albums'])
+    albums = {path.join(images_dir, album['title'].replace('/', '.')) for album in albums_data}
     valid_albums = []
     for album in albums:
         if make_dir(album):
@@ -69,6 +71,8 @@ def ensure_not_exists(destination: str) -> str:
 
 def images_to_albums(images_dir: str, data_dir: str, default_album: str):
     full_default = path.join(images_dir, default_album)
+    with open(path.join(data_dir, 'albums.json')) as out:
+        albums = load(out)['albums']
     files_to_parse = listdir(images_dir)
     for filename in files_to_parse:
         full_name = path.join(images_dir, filename)
@@ -94,7 +98,7 @@ def images_to_albums(images_dir: str, data_dir: str, default_album: str):
 
         real_name = get_real_name(data, extension) or filename
 
-        valid_albums = get_valid_albums(data, images_dir)
+        valid_albums = get_valid_albums(albums, data, images_dir)
         if not valid_albums:
             click.echo(f'No valid albums for {filename}, moving to "{default_album}"')
             if not make_dir(full_default):
