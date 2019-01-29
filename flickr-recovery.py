@@ -4,13 +4,9 @@ import subprocess
 from re import sub
 from json import load
 from os import path, listdir, mkdir, sched_getaffinity, wait
-from collections import defaultdict
 
 import click
 import shutil
-
-
-name_counters = defaultdict(lambda: 0)
 
 
 def get_name(image: dict) -> str:
@@ -40,7 +36,7 @@ def make_dir(full_path: str) -> bool:
 
 
 def get_valid_albums(flickr_data: dict, images_dir: str) -> list:
-    albums = [path.join(images_dir, album['title']) for album in flickr_data['albums']]
+    albums = [path.join(images_dir, album['title'].replace('/', '.')) for album in flickr_data['albums']]
     valid_albums = []
     for album in albums:
         if make_dir(album):
@@ -55,12 +51,20 @@ def get_real_name(flickr_data: dict, extension: str) -> str:
     return f'{name}.{extension}'
 
 
-def append_counter(real_name: str, count: str) -> str:
-    name_parts = real_name.split('.')
-    extension = name_parts.pop()
-    name_parts.append(str(count).zfill(4))
-    name_parts.append(extension)
-    return '.'.join(name_parts)
+def ensure_not_exists(destination: str) -> str:
+    if not path.exists(destination):
+        return destination
+    count = 1
+    name_parts = destination.split('.')
+    while True:
+        if count > 10000:
+            raise Exception('Something went really wrong')
+        current = name_parts[:]
+        current[-2] += f'-{str(count).zfill(4)}'
+        destination = '.'.join(current)
+        if not path.exists(destination):
+            return destination
+        count += 1
 
 
 def images_to_albums(images_dir: str, data_dir: str, default_album: str):
@@ -89,9 +93,6 @@ def images_to_albums(images_dir: str, data_dir: str, default_album: str):
             data = load(out)
 
         real_name = get_real_name(data, extension) or filename
-        name_counters[real_name] += 1
-        if name_counters[real_name] > 1:
-            real_name = append_counter(real_name, name_counters[real_name])
 
         valid_albums = get_valid_albums(data, images_dir)
         if not valid_albums:
@@ -103,15 +104,10 @@ def images_to_albums(images_dir: str, data_dir: str, default_album: str):
         last_album = valid_albums.pop()
 
         for album in valid_albums:
-            destination = path.join(album, real_name)
-            if path.exists(destination):
-                click.echo(f'"{destination}" already exists')
-                continue
+            destination = ensure_not_exists(path.join(album, real_name))
             shutil.copyfile(full_name, destination)
-        destination = path.join(last_album, real_name)
-        if path.exists(destination):
-            click.echo(f'"{destination}" already exists')
-            continue
+
+        destination = ensure_not_exists(path.join(last_album, real_name))
         shutil.move(full_name, destination)
 
 
@@ -170,10 +166,8 @@ def extract(archives_dir, images_dir, data_dir):
 
 
 @cli.command()
-@click.argument('images_dir', envvar='FLICKR_IMAGES_DIR', default='-',
-                type=click.Path(file_okay=False, allow_dash=True))
-@click.argument('data_dir', envvar='FLICKR_DATA_DIR', default='-',
-                type=click.Path(file_okay=False, allow_dash=True))
+@click.argument('images_dir', envvar='FLICKR_IMAGES_DIR', type=click.Path(file_okay=False))
+@click.argument('data_dir', envvar='FLICKR_DATA_DIR', type=click.Path(file_okay=False))
 @click.argument('default_album', default='unsorted')
 def to_albums(images_dir, data_dir, default_album):
     """
