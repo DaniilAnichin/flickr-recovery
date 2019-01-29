@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*- #
+import subprocess
 from re import sub
 from json import load
-from os import path, listdir, mkdir
+from os import path, listdir, mkdir, sched_getaffinity, wait
 from collections import defaultdict
 
 import click
@@ -28,13 +29,13 @@ def get_flickr_id(filename: str) -> str:
     return ''
 
 
-def make_album(full_album: str) -> bool:
-    if path.isfile(full_album):
-        click.echo(f'Destination album already exists as file - "{full_album}"')
+def make_dir(full_path: str) -> bool:
+    if path.isfile(full_path):
+        click.echo(f'Destination directory already exists as file - "{full_path}"')
         return False
 
-    if not path.isdir(full_album):
-        mkdir(full_album)
+    if not path.isdir(full_path):
+        mkdir(full_path)
     return True
 
 
@@ -42,7 +43,7 @@ def get_valid_albums(flickr_data: dict, images_dir: str) -> list:
     albums = [path.join(images_dir, album['title']) for album in flickr_data['albums']]
     valid_albums = []
     for album in albums:
-        if make_album(album):
+        if make_dir(album):
             valid_albums.append(album)
     return valid_albums
 
@@ -62,11 +63,7 @@ def append_counter(real_name: str, count: str) -> str:
     return '.'.join(name_parts)
 
 
-@click.command()
-@click.argument('images_dir', envvar='FLICKR_IMAGES_DIR',type=click.Path(file_okay=False))
-@click.argument('data_dir', envvar='FLICKR_DATA_DIR', type=click.Path(file_okay=False))
-@click.argument('default_album', default='common')
-def images_to_albums(images_dir, data_dir, default_album):
+def images_to_albums(images_dir: str, data_dir: str, default_album: str):
     full_default = path.join(images_dir, default_album)
     files_to_parse = listdir(images_dir)
     for filename in files_to_parse:
@@ -99,7 +96,7 @@ def images_to_albums(images_dir, data_dir, default_album):
         valid_albums = get_valid_albums(data, images_dir)
         if not valid_albums:
             click.echo(f'No valid albums for {filename}, moving to "{default_album}"')
-            if not make_album(full_default):
+            if not make_dir(full_default):
                 continue
             valid_albums.append(full_default)
 
@@ -118,5 +115,103 @@ def images_to_albums(images_dir, data_dir, default_album):
         shutil.move(full_name, destination)
 
 
+def extract_archives(archives_dir, images_dir, data_dir):
+    archives = [
+        file
+        for file
+        in listdir(archives_dir)
+        if file.endswith('.zip')
+    ]
+    destinations = {file: images_dir if file.startswith('data-') else data_dir for file in archives}
+
+    processes = set()
+    max_processes = len(sched_getaffinity(0))
+    for file, destination in destinations.items():
+        processes.add(subprocess.Popen(('unzip', path.join(archives_dir, file), '-d', destination,)))
+        if len(processes) >= max_processes:
+            wait()
+            processes.difference_update([p for p in processes if p.poll() is not None])
+
+    # Check if all the child processes were closed
+    for p in processes:
+        if p.poll() is None:
+            p.wait()
+
+
+@click.group()
+def cli():
+    """Script for working with flickr data dump, which is kinda messy and unordered"""
+    pass
+
+
+@cli.command()
+@click.argument('archives_dir', envvar='FLICKR_ARCHIVES_DIR', type=click.Path(file_okay=False))
+@click.argument('images_dir', envvar='FLICKR_IMAGES_DIR', default='-',
+                type=click.Path(file_okay=False, allow_dash=True))
+@click.argument('data_dir', envvar='FLICKR_DATA_DIR', default='-',
+                type=click.Path(file_okay=False, allow_dash=True))
+def extract(archives_dir, images_dir, data_dir):
+    """
+    Simply extracts all the data from archives to two different dirs,
+    :param archives_dir: directory where archives are stored
+    :param images_dir: path to directory with flickr images
+    :param data_dir: path to directory with account data
+    """
+    if data_dir == '-':
+        data_dir = path.join(archives_dir, 'data')
+        if not make_dir(data_dir):
+            return
+    if images_dir == '-':
+        images_dir = path.join(archives_dir, 'images')
+        if not make_dir(images_dir):
+            return
+
+    extract_archives(archives_dir, images_dir, data_dir)
+
+
+@cli.command()
+@click.argument('images_dir', envvar='FLICKR_IMAGES_DIR', default='-',
+                type=click.Path(file_okay=False, allow_dash=True))
+@click.argument('data_dir', envvar='FLICKR_DATA_DIR', default='-',
+                type=click.Path(file_okay=False, allow_dash=True))
+@click.argument('default_album', default='unsorted')
+def to_albums(images_dir, data_dir, default_album):
+    """
+    Reorders images from images_dir to albums according to information in data_dir
+    :param images_dir: path to directory with flickr images
+    :param data_dir: path to directory with account data
+    :param default_album: name of the dir for photos with no album
+    """
+    images_to_albums(images_dir, data_dir, default_album)
+
+
+@cli.command()
+@click.argument('archives_dir', envvar='FLICKR_ARCHIVES_DIR', type=click.Path(file_okay=False))
+@click.argument('images_dir', envvar='FLICKR_IMAGES_DIR', default='-',
+                type=click.Path(file_okay=False, allow_dash=True))
+@click.argument('data_dir', envvar='FLICKR_DATA_DIR', default='-',
+                type=click.Path(file_okay=False, allow_dash=True))
+@click.argument('default_album', default='unsorted')
+def extract_to_albums(archives_dir, images_dir, data_dir, default_album):
+    """
+    Both extracting and reordering images to albums
+    :param archives_dir: directory where archives are stored
+    :param images_dir: path to directory with flickr images
+    :param data_dir: path to directory with account data
+    :param default_album: name of the dir for photos with no album
+    """
+    if data_dir == '-':
+        data_dir = path.join(archives_dir, 'data')
+        if not make_dir(data_dir):
+            return
+    if images_dir == '-':
+        images_dir = path.join(archives_dir, 'images')
+        if not make_dir(images_dir):
+            return
+
+    extract_archives(archives_dir, images_dir, data_dir)
+    images_to_albums(images_dir, data_dir, default_album)
+
+
 if __name__ == '__main__':
-    images_to_albums()
+    cli()
