@@ -18,4 +18,7 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: Unix",
     ],
+    install_requires=[
+        'click==7.0'
+    ]
 )

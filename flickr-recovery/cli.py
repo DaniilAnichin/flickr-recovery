@@ -10,7 +10,11 @@ from .utils import make_dir
 
 @click.group()
 def cli():
-    """Script for working with flickr data dump, which is kinda messy and unordered"""
+    """Script for working with flickr data dump, which is kinda messy and unordered
+
+    Keep in mind, that all dir variables (DATA_DIR, for example) can be set not only in command,
+    but in environment with FLICKR_ + varialbe name (FLICKR_DATA_DIR, for example)
+    """
     pass
 
 
@@ -23,6 +27,8 @@ def cli():
 def extract(archives_dir, images_dir, data_dir):
     """
     Simply extracts all the data from archives to two different dirs,
+
+    \b
     :param archives_dir: directory where archives are stored
     :param images_dir: path to directory with flickr images
     :param data_dir: path to directory with account data
@@ -46,6 +52,8 @@ def extract(archives_dir, images_dir, data_dir):
 def to_albums(images_dir, data_dir, default_album):
     """
     Reorders images from images_dir to albums according to information in data_dir
+
+    \b
     :param images_dir: path to directory with flickr images
     :param data_dir: path to directory with account data
     :param default_album: name of the dir for photos with no album
@@ -63,6 +71,8 @@ def to_albums(images_dir, data_dir, default_album):
 def extract_to_albums(archives_dir, images_dir, data_dir, default_album):
     """
     Both extracting and reordering images to albums
+
+    \b
     :param archives_dir: directory where archives are stored
     :param images_dir: path to directory with flickr images
     :param data_dir: path to directory with account data
